@@ -21,7 +21,8 @@ from pybit.usdt_perpetual import HTTP
 from datetime import datetime
 import requests
 
-from app.config.const import DEFAULT_SLIPPAGE, DEFAULT_LEV, DEFAULT_PROPORTION, BINANCE_LEADER_BOARD_URL_V2
+from app.config.const import DEFAULT_SLIPPAGE, DEFAULT_LEV, DEFAULT_PROPORTION, BINANCE_LEADER_BOARD_URL_V2, DEFAULT_TP, \
+    DEFAULT_SL
 from app.data.credentials import ip
 
 import logging
@@ -73,6 +74,8 @@ logger = logging.getLogger(__name__)
     LEVTRADER,
     LEVSYM,
     REALSETLEV2,
+    REALSETTP,
+    REALSETSL,
     ALLPROP,
     REALSETPROP,
     PROPTRADER,
@@ -88,7 +91,7 @@ logger = logging.getLogger(__name__)
     SEP3,
     CP1,
     PLATFORM,
-) = range(56)
+) = range(58)
 
 
 class tgHandlers:
@@ -150,6 +153,8 @@ class tgHandlers:
             "safety_ratio": safe_ratio,
             "slippage": DEFAULT_SLIPPAGE,
             "leverage": lev,
+            "tp": DEFAULT_TP,
+            "sl": DEFAULT_SL,
             "traders": {
                 trader_uid: {
                     "name": trader_name,
@@ -374,7 +379,7 @@ class tgHandlers:
     def start(self, update: Update, context: CallbackContext) -> int:
         if self.dbobject.check_presence(update.message.chat_id):
             update.message.reply_text(
-                "You have already initalized! Please use other commands, "
+                "You have already initialized! Please use other commands, "
                 "or use /end to end current session before initializing another."
             )
             return ConversationHandler.END
@@ -570,7 +575,7 @@ class tgHandlers:
 
     def add_trader(self, update: Update, context: CallbackContext) -> int:
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         context.user_data["uname"] = update.message.from_user.first_name
         update.message.reply_text(
@@ -614,7 +619,7 @@ class tgHandlers:
 
     def delete_trader(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listtraders = self.dbobject.get_trader_list(update.message.chat_id)
         if len(listtraders) == 0:
@@ -633,7 +638,7 @@ class tgHandlers:
 
     def view_trader(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listtraders = self.dbobject.get_trader_list(update.message.chat_id)
         if len(listtraders) == 0:
@@ -713,7 +718,7 @@ class tgHandlers:
 
     def end_all(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return
         logger.info("%s ended the service.", update.message.from_user.first_name)
         update.message.reply_text(
@@ -758,7 +763,7 @@ class tgHandlers:
 
     def set_all_leverage(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         update.message.reply_text(
             "Please enter the target leverage (Integer between 1 and 125)"
@@ -779,7 +784,7 @@ class tgHandlers:
 
     def set_leverage(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listsymbols = self.dbobject.get_user_symbols(update.message.chat_id)
         listsymbols = [[x] for x in listsymbols]
@@ -829,9 +834,53 @@ class tgHandlers:
         update.message.reply_text("The leverage is changed successfully!", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
+    def set_tp(self, update: Update, context: CallbackContext):
+        if not self.dbobject.check_presence(update.message.chat_id):
+            update.message.reply_text("Please initialize with /start first.")
+            return ConversationHandler.END
+        update.message.reply_text(
+            "Please enter the target TP - take profit in % (Integer between 1 and 100 or -1 for no set TP.)"
+        )
+        return REALSETTP
+
+    def setTPReal(self, update: Update, context: CallbackContext):
+        try:
+            tp = int(update.message.text)
+            assert tp == -1 or (tp >= 1 and tp <= 100)
+        except:
+            update.message.reply_text(
+                "This is not a valid TP, please enter again."
+            )
+            return REALSETTP
+        self.dbobject.set_tp(update.message.chat_id, tp)
+        update.message.reply_text("The TP is changed successfully!", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
+    def set_sl(self, update: Update, context: CallbackContext):
+        if not self.dbobject.check_presence(update.message.chat_id):
+            update.message.reply_text("Please initialize with /start first.")
+            return ConversationHandler.END
+        update.message.reply_text(
+            "Please enter the target SL - stop loss in % (Integer between 1 and 100 or -1 for no set SL.)"
+        )
+        return REALSETSL
+
+    def setSLReal(self, update: Update, context: CallbackContext):
+        try:
+            sl = int(update.message.text)
+            assert sl== -1 or (sl >= 1 and sl <= 100)
+        except:
+            update.message.reply_text(
+                "This is not a valid SL, please enter again."
+            )
+            return REALSETTP
+        self.dbobject.set_sl(update.message.chat_id, sl)
+        update.message.reply_text("The SL is changed successfully!", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
     def set_all_proportion(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listtraders = self.dbobject.list_followed_traders(update.message.chat_id)
         if len(listtraders) == 0:
@@ -880,7 +929,7 @@ class tgHandlers:
 
     def set_proportion(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listtraders = self.dbobject.list_followed_traders(update.message.chat_id)
         if len(listtraders) == 0:
@@ -955,7 +1004,7 @@ class tgHandlers:
 
     def get_leverage(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         username = self.dbobject.query_field(update.message.chat_id, "uname")
         logger.info(f"User {username} querying leverage.")
@@ -979,7 +1028,7 @@ class tgHandlers:
 
     def get_proportion(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listtraders = self.dbobject.list_followed_traders(update.message.chat_id)
         if len(listtraders) == 0:
@@ -1048,7 +1097,7 @@ class tgHandlers:
 
     def set_omode(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listtraders = self.dbobject.list_followed_traders(update.message.chat_id)
         if len(listtraders) == 0:
@@ -1134,7 +1183,7 @@ class tgHandlers:
 
     def set_allomode(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         listtraders = self.dbobject.list_followed_traders(update.message.chat_id)
         if len(listtraders) == 0:
@@ -1163,15 +1212,19 @@ class tgHandlers:
         context.user_data["trader"] = traderinfo["uid"]
         update.message.reply_text("Please enter the target trading mode.")
         update.message.reply_text(
-            "0. MARKET: Once we detected a change in position, you will make an order immediately at the market price. As a result, your entry price might deviate from the trader's entry price (especially when there are significant market movements)."
+            "0. MARKET: Once we detected a change in position, you will make an order immediately at the market price. "
+            "As a result, your entry price might deviate from the trader's entry price "
+            "(especially when there are significant market movements)."
         )
         update.message.reply_text(
-            "1. LIMIT: You will make an limit order at the same price as the trader's estimated entry price. However, due to fluctuating market movements, your order might not be fulfilled."
+            "1. LIMIT: You will make an limit order at the same price as the trader's estimated entry price. "
+            "However, due to fluctuating market movements, your order might not be fulfilled."
         )
         update.message.reply_text(
-            "2. LIMIT, THEN MARKET: When opening positions, you will make an limit order at the same price as the trader's estimated entry price. When closing positions, you will follow market."
+            "2. LIMIT, THEN MARKET: When opening positions, you will make an limit order at the same price "
+            "as the trader's estimated entry price. When closing positions, you will follow market."
         )
-        update.message.reply_text("Please type 0,1 or 2 to indicate your choice.")
+        update.message.reply_text("Please type 0, 1 or 2 to indicate your choice.")
         return REALSETLEV6
 
     def setallomodeReal(self, update: Update, context: CallbackContext):
@@ -1191,7 +1244,7 @@ class tgHandlers:
 
     def change_safetyratio(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         update.message.reply_text("Please enter the safety ratio (between 0 and 1):")
         return LEVTRADER6
@@ -1209,7 +1262,7 @@ class tgHandlers:
 
     def change_slippage(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return ConversationHandler.END
         update.message.reply_text("Please enter the slippage (between 0 and 1):")
         return SLIPPAGE
@@ -1261,7 +1314,7 @@ class tgHandlers:
 
     def check_balance(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return
         self.dbobject.get_balance(update.message.chat_id)
         # update.message.reply_text(f"Your account balance is {balance} USDT.")
@@ -1269,7 +1322,7 @@ class tgHandlers:
 
     def check_position(self, update: Update, context: CallbackContext):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
         pos = self.dbobject.get_positions(update.message.chat_id)
         return
 
@@ -1278,7 +1331,7 @@ class tgHandlers:
 
     def query_setting(self, update, context):
         if not self.dbobject.check_presence(update.message.chat_id):
-            update.message.reply_text("Please initalize with /start first.")
+            update.message.reply_text("Please initialize with /start first.")
             return
         user = self.dbobject.get_user(update.message.chat_id)
         update.message.reply_text(
@@ -1385,13 +1438,8 @@ class tgHandlers:
         )
         dispatcher.add_handler(
             ConversationHandler(
-                entry_points=[CommandHandler("setallleverage", self.set_all_leverage)],
+                entry_points=[CommandHandler("setalllev", self.set_all_leverage)],
                 states={
-                    # ALLLEV: [
-                    #     MessageHandler(
-                    #         Filters.text & ~Filters.command, self.setAllLeverage
-                    #     )
-                    # ],
                     REALSETLEV: [
                         MessageHandler(
                             Filters.text & ~Filters.command, self.setAllLeverageReal
@@ -1403,7 +1451,7 @@ class tgHandlers:
         )
         dispatcher.add_handler(
             ConversationHandler(
-                entry_points=[CommandHandler("setleverage", self.set_leverage)],
+                entry_points=[CommandHandler("setlev", self.set_leverage)],
                 states={
                     # LEVTRADER: [
                     #     MessageHandler(
@@ -1418,6 +1466,32 @@ class tgHandlers:
                     REALSETLEV2: [
                         MessageHandler(
                             Filters.text & ~Filters.command, self.setLeverageReal
+                        )
+                    ],
+                },
+                fallbacks=[CommandHandler("cancel", self.cancel)],
+            )
+        )
+        dispatcher.add_handler(
+            ConversationHandler(
+                entry_points=[CommandHandler("settp", self.set_tp)],
+                states={
+                    REALSETTP: [
+                        MessageHandler(
+                            Filters.text & ~Filters.command, self.setTPReal
+                        )
+                    ],
+                },
+                fallbacks=[CommandHandler("cancel", self.cancel)],
+            )
+        )
+        dispatcher.add_handler(
+            ConversationHandler(
+                entry_points=[CommandHandler("setsl", self.set_sl)],
+                states={
+                    REALSETSL: [
+                        MessageHandler(
+                            Filters.text & ~Filters.command, self.setSLReal
                         )
                     ],
                 },
@@ -1441,12 +1515,6 @@ class tgHandlers:
             ConversationHandler(
                 entry_points=[CommandHandler("getleverage", self.get_leverage)],
                 states={
-                    # LEVTRADER2: [
-                    #     MessageHandler(
-                    #         Filters.text & ~Filters.command,
-                    #         self.getleverage_choosetrader,
-                    #     )
-                    # ],
                     REALSETLEV3: [
                         MessageHandler(
                             Filters.text & ~Filters.command, self.getLeverageReal

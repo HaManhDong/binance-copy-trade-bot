@@ -2,8 +2,10 @@ start - Start using the service.
 add - Add a trader to follow.
 delete - Delete a followed trader.
 admin - Perform Admin actions.
-setallleverage - Set the same desired leverage for all available symbols.
-setleverage - Set leverage for a symbol.
+setalllev - Set the same desired leverage for all available symbols.
+setlev - Set leverage for a symbol.
+settp - Set leverage for a symbol.
+setsl - Set leverage for a symbol.
 view - View a trader's latest position.
 getleverage - Check your leverage setting for a symbol.
 setallproportion - Set proportion for a trader, all symbols.

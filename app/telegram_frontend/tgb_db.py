@@ -132,6 +132,16 @@ class dbOperations:
         self.usertable.update_one(myquery, newvalues)
         self.updater.bot.sendMessage(chat_id, "successfully updated leverage!")
 
+    def set_tp(self, chat_id, tp):
+        myquery = {"chat_id": chat_id}
+        newvalues = {"$set": {f"tp": tp}}
+        self.usertable.update_one(myquery, newvalues)
+
+    def set_sl(self, chat_id, sl):
+        myquery = {"chat_id": chat_id}
+        newvalues = {"$set": {f"sl": sl}}
+        self.usertable.update_one(myquery, newvalues)
+
     def list_followed_traders(self, chat_id):
         myquery = {"chat_id": chat_id}
         data = self.usertable.find_one(myquery)
