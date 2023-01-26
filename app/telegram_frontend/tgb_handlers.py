@@ -1,3 +1,4 @@
+from binance.um_futures import UMFutures
 from telegram.ext import (
     ConversationHandler,
     CallbackContext,
@@ -19,6 +20,8 @@ from telegram.ext import (
 from pybit.usdt_perpetual import HTTP
 from datetime import datetime
 import requests
+
+from app.config.const import DEFAULT_SLIPPAGE, DEFAULT_LEV, DEFAULT_PROPORTION, BINANCE_LEADER_BOARD_URL_V2
 from app.data.credentials import ip
 
 import logging
@@ -104,7 +107,7 @@ class tgHandlers:
         for i, ch in enumerate(x):
             result = y.find(x[prev_idx:i])
             if result == -1:
-                words.append(x[prev_idx : i - 1])
+                words.append(x[prev_idx: i - 1])
                 prev_idx = i - 1
         words.append(x[prev_idx:])
         return words[-1]
@@ -114,35 +117,30 @@ class tgHandlers:
         if n == 0:
             return [a]
         k, m = divmod(len(a), n)
-        return [a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n)]
+        return [a[i * k + min(i, m): (i + 1) * k + min(i + 1, m)] for i in range(n)]
 
     def initUserThread(
-        self,
-        chat_id,
-        uname,
-        safe_ratio,
-        trader_name,
-        trader_uid,
-        api_key,
-        api_secret,
-        toTrade,
-        tmode,
+            self,
+            chat_id,
+            uname,
+            safe_ratio,
+            trader_name,
+            trader_uid,
+            api_key,
+            api_secret,
+            toTrade,
+            tmode,
     ):
         # get symbols, set all leverage to 5x, proportion to 0
-        client = HTTP(
-            "https://api.bybit.com",
-            api_key="",
-            api_secret="",
-            request_timeout=40,
-        )
-        res = client.query_symbol()
+        client = UMFutures()
+        exchanges = client.exchange_info()
         lev = dict()
         prop = dict()
         tmoded = dict()
-        for sym in res["result"]:
-            sym = sym["name"]
-            lev[sym] = 5
-            prop[sym] = 0
+        for sym in exchanges["symbols"]:
+            sym = sym["symbol"]
+            lev[sym] = DEFAULT_LEV
+            prop[sym] = DEFAULT_PROPORTION
             tmoded[sym] = tmode
         user_doc = {
             "api_key": api_key,
@@ -150,7 +148,7 @@ class tgHandlers:
             "chat_id": chat_id,
             "uname": uname,
             "safety_ratio": safe_ratio,
-            "slippage": 0.05,
+            "slippage": DEFAULT_SLIPPAGE,
             "leverage": lev,
             "traders": {
                 trader_uid: {
@@ -174,32 +172,37 @@ class tgHandlers:
                 chat_id=chat_id,
                 text=f"Thanks! {trader_name}'s latest position:",
             )
-            df = pd.read_json(traderdoc["positions"])
-            numrows = df.shape[0]
-            if numrows <= 10:
-                tosend = f"Trader {traderdoc['name']}" + "\n" + df.to_string() + "\n"
-                self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
-            else:
-                firstdf = df.iloc[0:10]
-                tosend = (
-                    f"Trader {traderdoc['name']}: "
-                    + "\n"
-                    + firstdf.to_string()
-                    + "\n(cont...)"
-                )
-                self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
-                for i in range(numrows // 10):
-                    seconddf = df.iloc[(i + 1) * 10 : min(numrows, (i + 2) * 10)]
-                    if not seconddf.empty:
-                        self.updater.bot.sendMessage(
-                            chat_id=chat_id, text=seconddf.to_string()
-                        )
-            if toTrade:
-                self.updater.bot.sendMessage(
-                    chat_id=chat_id,
-                    text="*All your proportions have been set to 0x , all leverage has ben set to 5x, and your slippage has been set to 0.05. Change these settings with extreme caution.*",
-                    parse_mode=telegram.ParseMode.MARKDOWN,
-                )
+            try:
+                df = pd.read_json(traderdoc["positions"])
+                numrows = df.shape[0]
+                if numrows <= 10:
+                    tosend = f"Trader {traderdoc['name']}" + "\n" + df.to_string() + "\n"
+                    self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
+                else:
+                    firstdf = df.iloc[0:10]
+                    tosend = (
+                            f"Trader {traderdoc['name']}: "
+                            + "\n"
+                            + firstdf.to_string()
+                            + "\n(cont...)"
+                    )
+                    self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
+                    for i in range(numrows // 10):
+                        seconddf = df.iloc[(i + 1) * 10: min(numrows, (i + 2) * 10)]
+                        if not seconddf.empty:
+                            self.updater.bot.sendMessage(
+                                chat_id=chat_id, text=seconddf.to_string()
+                            )
+                if toTrade:
+                    self.updater.bot.sendMessage(
+                        chat_id=chat_id,
+                        text="*All your proportions have been set to 0x, "
+                             "all leverage has ben set to 5x, and your slippage has been set to 0.05."
+                             "Change these settings with extreme caution.*",
+                        parse_mode=telegram.ParseMode.MARKDOWN,
+                    )
+            except ValueError:
+                self.updater.bot.sendMessage(chat_id=chat_id, text="No positions")
         else:
             # add to trader database
             df = self.globals.get_init_traderPosition(trader_uid)
@@ -227,14 +230,14 @@ class tgHandlers:
             else:
                 firstdf = df.iloc[0:10]
                 tosend = (
-                    f"Trader {traderdoc['name']}: "
-                    + "\n"
-                    + firstdf.to_string()
-                    + "\n(cont...)"
+                        f"Trader {traderdoc['name']}: "
+                        + "\n"
+                        + firstdf.to_string()
+                        + "\n(cont...)"
                 )
                 self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
                 for i in range(numrows // 10):
-                    seconddf = df.iloc[(i + 1) * 10 : min(numrows, (i + 2) * 10)]
+                    seconddf = df.iloc[(i + 1) * 10: min(numrows, (i + 2) * 10)]
                     if not seconddf.empty:
                         self.updater.bot.sendMessage(
                             chat_id=chat_id, text=seconddf.to_string()
@@ -247,20 +250,15 @@ class tgHandlers:
                 )
 
     def addTraderThread(
-        self, chat_id, trader_name, trader_uid, toTrade, tmode
+            self, chat_id, trader_name, trader_uid, toTrade, tmode
     ):
-        client = HTTP(
-            "https://api.bybit.com",
-            api_key="",
-            api_secret="",
-            request_timeout=40,
-        )
-        res = client.query_symbol()
+        client = UMFutures()
+        exchanges = client.exchange_info()
         prop = dict()
         tmoded = dict()
-        for sym in res["result"]:
-            sym = sym["name"]
-            prop[sym] = 0
+        for sym in exchanges["symbols"]:
+            sym = sym["symbol"]
+            prop[sym] = DEFAULT_PROPORTION
             tmoded[sym] = tmode
         userdoc = self.dbobject.get_user(chat_id)
         userdoc["traders"][trader_uid] = {
@@ -281,7 +279,7 @@ class tgHandlers:
                 text=f"Thanks! {trader_name}'s latest position:",
             )
             try:
-                df = pd.read_json(traderdoc["positions"]) 
+                df = pd.read_json(traderdoc["positions"])
                 numrows = df.shape[0]
                 if numrows <= 10:
                     tosend = f"Trader {traderdoc['name']}" + "\n" + df.to_string() + "\n"
@@ -289,14 +287,14 @@ class tgHandlers:
                 else:
                     firstdf = df.iloc[0:10]
                     tosend = (
-                        f"Trader {traderdoc['name']}: "
-                        + "\n"
-                        + firstdf.to_string()
-                        + "\n(cont...)"
+                            f"Trader {traderdoc['name']}: "
+                            + "\n"
+                            + firstdf.to_string()
+                            + "\n(cont...)"
                     )
                     self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
                     for i in range(numrows // 10):
-                        seconddf = df.iloc[(i + 1) * 10 : min(numrows, (i + 2) * 10)]
+                        seconddf = df.iloc[(i + 1) * 10: min(numrows, (i + 2) * 10)]
                         if not seconddf.empty:
                             self.updater.bot.sendMessage(
                                 chat_id=chat_id, text=seconddf.to_string()
@@ -306,7 +304,8 @@ class tgHandlers:
             if toTrade:
                 self.updater.bot.sendMessage(
                     chat_id=chat_id,
-                    text="*All your proportions have been set to 0x , all leverage has ben set to 5x, and your slippage has been set to 0.05. Change these settings with extreme caution.*",
+                    text="*All your proportions have been set to 0x , all leverage has ben set to 5x, "
+                         "and your slippage has been set to 0.05. Change these settings with extreme caution.*",
                     parse_mode=telegram.ParseMode.MARKDOWN,
                 )
         else:
@@ -337,14 +336,14 @@ class tgHandlers:
                 else:
                     firstdf = df.iloc[0:10]
                     tosend = (
-                        f"Trader {traderdoc['name']}: "
-                        + "\n"
-                        + firstdf.to_string()
-                        + "\n(cont...)"
+                            f"Trader {traderdoc['name']}: "
+                            + "\n"
+                            + firstdf.to_string()
+                            + "\n(cont...)"
                     )
                     self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
                     for i in range(numrows // 10):
-                        seconddf = df.iloc[(i + 1) * 10 : min(numrows, (i + 2) * 10)]
+                        seconddf = df.iloc[(i + 1) * 10: min(numrows, (i + 2) * 10)]
                         if not seconddf.empty:
                             self.updater.bot.sendMessage(
                                 chat_id=chat_id, text=seconddf.to_string()
@@ -354,7 +353,8 @@ class tgHandlers:
             if toTrade:
                 self.updater.bot.sendMessage(
                     chat_id=chat_id,
-                    text="*All your proportions have been set to 0x , all leverage has ben set to 5x, and your slippage has been set to 0.05. Change these settings with extreme caution.*",
+                    text="*All your proportions have been set to 0x , all leverage has ben set to 5x, "
+                         "and your slippage has been set to 0.05. Change these settings with extreme caution.*",
                     parse_mode=telegram.ParseMode.MARKDOWN,
                 )
 
@@ -362,7 +362,7 @@ class tgHandlers:
         success = False
         name = ""
         try:
-            r = requests.post("https://www.binance.com/bapi/futures/v2/public/future/leaderboard/getOtherLeaderboardBaseInfo",json={
+            r = requests.post(BINANCE_LEADER_BOARD_URL_V2, json={
                 "encryptedUid": uid
             })
             assert r.status_code == 200
@@ -374,11 +374,13 @@ class tgHandlers:
     def start(self, update: Update, context: CallbackContext) -> int:
         if self.dbobject.check_presence(update.message.chat_id):
             update.message.reply_text(
-                "You have already initalized! Please use other commands, or use /end to end current session before initializing another."
+                "You have already initalized! Please use other commands, "
+                "or use /end to end current session before initializing another."
             )
             return ConversationHandler.END
         update.message.reply_text(
-            f"*Welcome {update.message.from_user.first_name}!* Before you start, please type in the access code (6 digits).",
+            f"*Welcome {update.message.from_user.first_name}!* Before you start, "
+            f"please type in the access code (6 digits).",
             parse_mode=telegram.ParseMode.MARKDOWN,
         )
         context.user_data["uname"] = update.message.from_user.first_name
@@ -409,10 +411,8 @@ class tgHandlers:
             "%s has agreed to the disclaimer.", update.message.from_user.first_name
         )
         context.user_data["is_sub"] = False
-        # update.message.reply_text(
-        #     "Please enter 2. (This field Reserved for choosing platforms, but currently only bybit is supported)."  # choose the platform:\n1. AAX\n2. Bybit\n3.Binance\nPlease enter your choice (1,2,3)"
-        # )
-        update.message.reply_text(f"Please provide your API key from Bybit. Bind your API key to the IP address {ip}.")
+        update.message.reply_text(f"Please provide your API key from Binance. "
+                                  f"Bind your API key to the IP address {ip}.")
         return APIKEY
 
     def check_api(self, update: Update, context: CallbackContext):
@@ -445,10 +445,11 @@ class tgHandlers:
             "%s has entered the first url.", update.message.from_user.first_name
         )
         try:
-            r = requests.post("https://www.binance.com/bapi/futures/v1/public/future/leaderboard/getOtherPosition",json={
-                "encryptedUid": url,
-                "tradeType": "PERPETUAL"
-            })
+            r = requests.post("https://www.binance.com/bapi/futures/v1/public/future/leaderboard/getOtherPosition",
+                              json={
+                                  "encryptedUid": url,
+                                  "tradeType": "PERPETUAL"
+                              })
             assert r.status_code == 200
         except:
             update.message.reply_text(
@@ -583,10 +584,11 @@ class tgHandlers:
         context.user_data['uid'] = url
         update.message.reply_text("Please wait...", reply_markup=ReplyKeyboardRemove())
         try:
-            r = requests.post("https://www.binance.com/bapi/futures/v1/public/future/leaderboard/getOtherPosition",json={
-                "encryptedUid": url,
-                "tradeType": "PERPETUAL"
-            })
+            r = requests.post("https://www.binance.com/bapi/futures/v1/public/future/leaderboard/getOtherPosition",
+                              json={
+                                  "encryptedUid": url,
+                                  "tradeType": "PERPETUAL"
+                              })
             assert r.status_code == 200
         except:
             update.message.reply_text(
@@ -651,7 +653,8 @@ class tgHandlers:
     def view_traderInfo(self, update: Update, context: CallbackContext):
         traderinfo = self.dbobject.get_trader(update.message.text)
         update.message.reply_text(
-            f"{update.message.text}'s current position: \n(Last position update: {str(traderinfo['lastPosTime'])})",  reply_markup=ReplyKeyboardRemove()
+            f"{update.message.text}'s current position: \n(Last position update: {str(traderinfo['lastPosTime'])})",
+            reply_markup=ReplyKeyboardRemove()
         )
         msg = traderinfo["positions"]
         if msg == "x":
@@ -666,7 +669,7 @@ class tgHandlers:
                 tosend = firstdf.to_string() + "\n(cont...)"
                 update.message.reply_text(f"{tosend}")
                 for i in range(numrows // 10):
-                    seconddf = msg.iloc[(i + 1) * 10 : min(numrows, (i + 2) * 10)]
+                    seconddf = msg.iloc[(i + 1) * 10: min(numrows, (i + 2) * 10)]
                     if not seconddf.empty:
                         update.message.reply_text(f"{seconddf.to_string()}")
         # update.message.reply_text(f"Successfully removed {update.message.text}.")
@@ -852,7 +855,8 @@ class tgHandlers:
         )
         if ("toTrade" not in traderinfo) or (not traderinfo["toTrade"]):
             update.message.reply_text(
-                "You did not set copy trade option for this trader. If needed, /delete this trader and /add again.", reply_markup=ReplyKeyboardRemove()
+                "You did not set copy trade option for this trader. If needed, /delete this trader and /add again.",
+                reply_markup=ReplyKeyboardRemove()
             )
             return ConversationHandler.END
         context.user_data["trader"] = traderinfo["uid"]
@@ -871,7 +875,7 @@ class tgHandlers:
         self.dbobject.set_all_proportion(
             update.message.chat_id, context.user_data["trader"], prop
         )
-        update.message.reply_text("Success!",reply_markup=ReplyKeyboardRemove())
+        update.message.reply_text("Success!", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     def set_proportion(self, update: Update, context: CallbackContext):
@@ -1037,7 +1041,8 @@ class tgHandlers:
             symbol,
         )
         update.message.reply_text(
-            f"The proportion set for {context.user_data['traderName']}, {symbol} is {result}x.", reply_markup=ReplyKeyboardRemove()
+            f"The proportion set for {context.user_data['traderName']}, {symbol} is {result}x.",
+            reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
 
@@ -1124,7 +1129,7 @@ class tgHandlers:
             context.user_data["symbol"],
             tmode,
         )
-        update.message.reply_text("Success!",reply_markup=ReplyKeyboardRemove())
+        update.message.reply_text("Success!", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     def set_allomode(self, update: Update, context: CallbackContext):
@@ -1181,7 +1186,7 @@ class tgHandlers:
         self.dbobject.set_all_tmode(
             update.message.chat_id, context.user_data["trader"], tmode
         )
-        update.message.reply_text(f"Successfully changed trading mode!",reply_markup=ReplyKeyboardRemove())
+        update.message.reply_text(f"Successfully changed trading mode!", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     def change_safetyratio(self, update: Update, context: CallbackContext):
@@ -1199,7 +1204,7 @@ class tgHandlers:
             update.message.reply_text("This is not a valid ratio, please enter again.")
             return LEVTRADER6
         self.dbobject.set_safety(update.message.chat_id, safety_ratio)
-        update.message.reply_text("Success!",reply_markup=ReplyKeyboardRemove())
+        update.message.reply_text("Success!", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     def change_slippage(self, update: Update, context: CallbackContext):
@@ -1217,13 +1222,16 @@ class tgHandlers:
             update.message.reply_text("This is not a valid ratio, please enter again.")
             return SLIPPAGE
         self.dbobject.set_slippage(update.message.chat_id, safety_ratio)
-        update.message.reply_text("Success!",reply_markup=ReplyKeyboardRemove())
+        update.message.reply_text("Success!", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     def change_api(self, update: Update, context: CallbackContext):
-        update.message.reply_text("Please provide your API Key from Bybit.")
+        update.message.reply_text("Please provide your API Key from Binance.")
         update.message.reply_text(
-            f"*SECURITY WARNING*\nTo ensure safety of funds, please note the following before providing your API key:\n1. Set up a new key for this program, don't reuse your other API keys.\n2. Restrict access to this IP: *{ip}*\n3. Only allow these API Restrictions: 'Enable Reading' and 'Enable Futures'.",
+            f"*SECURITY WARNING*\nTo ensure safety of funds, please note the following before providing your API key:\n"
+            f"1. Set up a new key for this program, don't reuse your other API keys.\n"
+            f"2. Restrict access to this IP: *{ip}*\n"
+            f"3. Only allow these API Restrictions: 'Enable Reading' and 'Enable Futures'.",
             parse_mode=telegram.ParseMode.MARKDOWN,
         )
         return SEP1
@@ -1248,7 +1256,7 @@ class tgHandlers:
         self.dbobject.set_api(
             update.message.chat_id, context.user_data["api_key"], update.message.text
         )
-        update.message.reply_text("Success!",reply_markup=ReplyKeyboardRemove())
+        update.message.reply_text("Success!", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
     def check_balance(self, update: Update, context: CallbackContext):
@@ -1263,7 +1271,6 @@ class tgHandlers:
         if not self.dbobject.check_presence(update.message.chat_id):
             update.message.reply_text("Please initalize with /start first.")
         pos = self.dbobject.get_positions(update.message.chat_id)
-        # update.message.reply_text(f"Your current position is:\n{pos}")
         return
 
     def makeitcrash(self, update, context):

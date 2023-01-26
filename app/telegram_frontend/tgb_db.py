@@ -2,7 +2,11 @@ import pymongo
 import pandas as pd
 import time
 import logging
+import prettytable
+
+from binance.um_futures import UMFutures
 from pybit.usdt_perpetual import HTTP
+from telegram import ParseMode
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -190,12 +194,19 @@ class dbOperations:
     def get_balance(self, chat_id):
         result = self.usertable.find_one({"chat_id": chat_id})
         try:
-            client = HTTP(
-                endpoint="https://api.bybit.com", api_key=result["api_key"], api_secret=result["api_secret"]
+            client = UMFutures(
+                key=result['api_key'],
+                secret=result['api_secret']
             )
-            result = client.get_wallet_balance(coin="USDT")
-            result = result["result"]["USDT"]
-            tosend = f"Your USDT account balance:\nBalance: {result['equity']}\nAvailable: {result['available_balance']}\nRealised PNL: {result['realised_pnl']}\nUnrealized PNL: {result['unrealised_pnl']}"
+            balances = client.balance()
+            for balance in balances:
+                if balance['asset'] == "USDT":
+                    usdt_balance = balance
+                    break
+            tosend = f"Your USDT account balance:\n" \
+                     f"Balance: {float(usdt_balance['balance']):.2f}\n" \
+                     f"Available: {float(usdt_balance['availableBalance']):.2f}\n" \
+                     f"Unrealized PNL: {float(usdt_balance['crossUnPnl']):.2f}"
             self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
         except Exception as e:
             logger.info(str(e))
@@ -205,68 +216,34 @@ class dbOperations:
 
     def get_positions(self, chat_id):
         result = self.usertable.find_one({"chat_id": chat_id})
+        potisions = []
         try:
-            client = HTTP(
-                endpoint="https://api.bybit.com", api_key=result["api_key"], api_secret=result["api_secret"]
+            client = UMFutures(
+                key=result['api_key'],
+                secret=result['api_secret']
             )
-            result = client.my_position()['result']
+            potisions = client.get_position_risk()
         except:
             logger.error("Other errors")
         try:
-            symbol = []
-            size = []
-            EnPrice = []
-            MarkPrice = []
-            PNL = []
-            margin = []
-            for pos in result:
-                pos = pos["data"]
-                if float(pos["size"]) != 0:
-                    try:
-                        mp = client.public_trading_records(symbol=pos['symbol'],limit=1)['result'][0]['price']
-                    except:
-                        mp = pos["entry_price"]
-                    symbol.append(pos["symbol"])
-                    tsize = pos["size"]
-                    tsize = tsize if pos["side"] == "Buy" else -tsize
-                    size.append(tsize)
-                    EnPrice.append(pos["entry_price"])
-                    MarkPrice.append(mp)
-                    PNL.append(pos["unrealised_pnl"])
-                    margin.append(pos["leverage"])
-            newPosition = pd.DataFrame(
-                {
-                    "symbol": symbol,
-                    "size": size,
-                    "Entry Price": EnPrice,
-                    "Mark Price": MarkPrice,
-                    "PNL": PNL,
-                    "leverage": margin,
-                }
-            )
-            numrows = newPosition.shape[0]
-            if numrows <= 10:
-                tosend = (
-                    f"Your current Position: " + "\n" + newPosition.to_string() + "\n"
-                )
-                self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
-            else:
-                firstdf = newPosition.iloc[0:10]
-                tosend = (
-                    f"Your current Position: "
-                    + "\n"
-                    + firstdf.to_string()
-                    + "\n(cont...)"
-                )
-                self.updater.bot.sendMessage(chat_id=chat_id, text=tosend)
-                for i in range(numrows // 10):
-                    seconddf = newPosition.iloc[
-                        (i + 1) * 10 : min(numrows, (i + 2) * 10)
-                    ]
-                    if not seconddf.empty:
-                        self.updater.bot.sendMessage(
-                            chat_id=chat_id, text=seconddf.to_string()
-                        )
+            table = prettytable.PrettyTable(["Symbol", "Type", "Size", "Entry", "Mark price", "Lev", "%", "PNL"])
+            for pos in potisions:
+                if float(pos["notional"]) != 0:
+                    size = float(pos["notional"]) / float(pos["leverage"])
+                    pnl = float(pos["unRealizedProfit"])
+                    percent = (pnl / size) * 100
+                    table.add_row([
+                        pos["symbol"],
+                        pos["positionSide"],
+                        f'{size:.2f}',
+                        f'{float(pos["entryPrice"]):.3f}',
+                        f'{float(pos["markPrice"]):.3f}',
+                        pos["leverage"],
+                        f'{percent:.2f}%',
+                        f'{float(pos["unRealizedProfit"]):.2f}',
+                    ])
+
+            self.updater.bot.sendMessage(chat_id=chat_id, text=f'```{table}```', parse_mode=ParseMode.MARKDOWN_V2)
         except Exception as e:
             logger.info(f"hi {str(e)}")
             self.updater.bot.sendMessage(chat_id, "Unable to get positions.")
