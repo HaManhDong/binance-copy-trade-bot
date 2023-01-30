@@ -12,7 +12,7 @@ from binance.um_futures import UMFutures
 from binance.error import ClientError
 
 from app.config.const import PositionSide, OrderType, OrderSide, TimeInForce, OrderStatus, MAX_POSITIONS, DEFAULT_TP, \
-    DEFAULT_SL
+    DEFAULT_SL, WorkingType
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -58,12 +58,12 @@ class BinanceUMFuturesClient:
         logger.info(f"Debug Check Lev: {leverage} / TP: {tp} / SL: {sl}")
         if side == OrderSide.BUY:
             if tp != -1:
-                tpPrice1 = excprice * (1 + (tp / leverage) / 100)
-                qty1 = "{:0.0{}f}".format(qty, self.step_size[symbol])
+                tpPrice1 = excprice / (1 - (tp / leverage) / 100)
                 tpPrice1 = "{:0.0{}f}".format(tpPrice1, self.tick_size[symbol])
+                qty1 = "{:0.0{}f}".format(qty, self.step_size[symbol])
                 try:
                     self.client.new_order(
-                        side=side,
+                        side=OrderSide.SELL,
                         symbol=symbol,
                         type=OrderType.LIMIT,
                         quantity=str(qty1),
@@ -72,31 +72,30 @@ class BinanceUMFuturesClient:
                         price=tpPrice1
                     )
                 except Exception as e:
-                    logger.error(f"Error in set TP: {e}")
+                    logger.exception(f"Error in set TP: {e}")
             if sl != -1:
-                tpPrice2 = excprice * (1 - (sl / leverage) / 100)
-                qty2 = "{:0.0{}f}".format(qty, self.step_size[symbol])
-                tpPrice2 = "{:0.0{}f}".format(tpPrice2, self.tick_size[symbol])
+                stopPrice = excprice * (1 - (sl / leverage) / 100)
+                stopPrice = "{:0.0{}f}".format(stopPrice, self.tick_size[symbol])
                 try:
                     self.client.new_order(
-                        side=side,
+                        side=OrderSide.SELL,
                         symbol=symbol,
-                        type=OrderType.LIMIT,
-                        quantity=str(qty2),
-                        timeInForce=TimeInForce.GTC,
+                        ordertype = OrderType.STOP_MARKET,
+                        workingType=WorkingType.CONTRACT_PRICE,
                         positionSide=positionSide,
-                        price=tpPrice2
+                        closePosition=True,
+                        stopPrice=stopPrice
                     )
                 except Exception as e:
-                    logger.error(f"Error in set SL: {e}")
+                    logger.exception(f"Error in set SL: {e}")
         else:
             if tp != -1:
                 tpPrice1 = excprice * (1 - (tp / leverage) / 100)
-                qty1 = "{:0.0{}f}".format(qty, self.step_size[symbol])
                 tpPrice1 = "{:0.0{}f}".format(tpPrice1, self.tick_size[symbol])
+                qty1 = "{:0.0{}f}".format(qty, self.step_size[symbol])
                 try:
                     self.client.new_order(
-                        side=side,
+                        side=OrderSide.BUY,
                         symbol=symbol,
                         type=OrderType.LIMIT,
                         quantity=str(qty1),
@@ -105,23 +104,22 @@ class BinanceUMFuturesClient:
                         price=tpPrice1
                     )
                 except Exception as e:
-                    logger.error(f"Error in set TP: {e}")
+                    logger.exception(f"Error in set TP: {e}")
             if sl != -1:
-                tpPrice2 = excprice * (1 + (sl / leverage) / 100)
-                qty2 = "{:0.0{}f}".format(qty, self.step_size[symbol])
-                tpPrice2 = "{:0.0{}f}".format(tpPrice2, self.tick_size[symbol])
+                stopPrice = excprice * (1 + (sl / leverage) / 100)
+                stopPrice = "{:0.0{}f}".format(stopPrice, self.tick_size[symbol])
                 try:
                     self.client.new_order(
-                        side=side,
+                        side=OrderSide.BUY,
                         symbol=symbol,
-                        type=OrderType.LIMIT,
-                        quantity=str(qty2),
-                        timeInForce=TimeInForce.GTC,
+                        ordertype=OrderType.STOP_MARKET,
+                        workingType=WorkingType.CONTRACT_PRICE,
                         positionSide=positionSide,
-                        price=tpPrice2
+                        closePosition=True,
+                        stopPrice=stopPrice
                     )
                 except Exception as e:
-                    logger.error(f"Error in set SL: {e}")
+                    logger.exception(f"Error in set SL: {e}")
         return
 
     def query_trade(self, orderId, symbol, positionKey, isOpen, uname,
@@ -210,11 +208,14 @@ class BinanceUMFuturesClient:
             time.sleep(60)
             numTries += 1
 
+    def calculate_tpsl(self, tp, sl):
+        pass
+
     # txlist:
     #   'txType', 'symbol', 'size', 'ExecPrice', 'isClosedAll'
     #   CloseLong, BTCUSDT, -380.30000, 12.89657, True
     #   OpenLong, APTUSDT, 380.30000, 13.21451, False
-    def open_trade(self, txlist, uid, proportion, leverage, tmodes, positions, slippage, todelete=False):
+    def open_trade(self, txlist, uid, proportion, leverage, tp, sl, tmodes, positions, slippage, todelete=False):
         df = txlist.values
         i = -1
         for tradeinfo in df:
@@ -242,7 +243,7 @@ class BinanceUMFuturesClient:
                 try:
                     self.client.change_leverage(symbol=symbol, leverage=leverage[symbol])
                 except Exception as e:
-                    logger.error(f"Leverage error {str(e)}")
+                    logger.exception(f"Leverage error {str(e)}")
                     pass
             else:
                 is_open = False
@@ -383,8 +384,8 @@ class BinanceUMFuturesClient:
                             check_key,
                             is_open,
                             self.uname,
-                            DEFAULT_TP,
-                            DEFAULT_SL,
+                            tp,
+                            sl,
                             leverage[symbol],
                             positionSide,
                             -1,
@@ -439,8 +440,8 @@ class BinanceUMFuturesClient:
                             check_key,
                             is_open,
                             self.uname,
-                            DEFAULT_TP,
-                            DEFAULT_SL,
+                            tp,
+                            sl,
                             leverage[symbol],
                             positionSide,
                             -1,
