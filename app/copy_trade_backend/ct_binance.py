@@ -65,14 +65,23 @@ class BinanceUMFuturesClient:
                     self.client.new_order(
                         side=OrderSide.SELL,
                         symbol=symbol,
-                        type=OrderType.LIMIT,
-                        quantity=str(qty1),
-                        timeInForce=TimeInForce.GTC,
+                        type=OrderType.TAKE_PROFIT_MARKET,
+                        workingType=WorkingType.CONTRACT_PRICE,
+                        closePosition=True,
                         positionSide=positionSide,
-                        price=tpPrice1
+                        stopPrice=tpPrice1
                     )
+                    msg = f"Set TP for {positionSide} {symbol} has successfully at {tp}%!"
                 except Exception as e:
+                    msg = f"[Warning] Set TP for {positionSide} {symbol} has failed!"
                     logger.exception(f"Error in set TP: {e}")
+            else:
+                msg = "Does not set TP because your current configuration is: TP = -1"
+            self.userdb.insert_command({
+                "cmd": "send_message",
+                "chat_id": self.chat_id,
+                "message": msg,
+            })
             if sl != -1:
                 stopPrice = excprice * (1 - (sl / leverage) / 100)
                 stopPrice = "{:0.0{}f}".format(stopPrice, self.tick_size[symbol])
@@ -80,14 +89,23 @@ class BinanceUMFuturesClient:
                     self.client.new_order(
                         side=OrderSide.SELL,
                         symbol=symbol,
-                        ordertype = OrderType.STOP_MARKET,
+                        type=OrderType.STOP_MARKET,
                         workingType=WorkingType.CONTRACT_PRICE,
                         positionSide=positionSide,
                         closePosition=True,
                         stopPrice=stopPrice
                     )
+                    msg = f"Set SL for {positionSide} {symbol} has successfully at {sl}%!"
                 except Exception as e:
+                    msg = f"[Warning] Set SL for {positionSide} {symbol} has failed!"
                     logger.exception(f"Error in set SL: {e}")
+            else:
+                msg = "Does not set SL because your current configuration is: SL = -1"
+            self.userdb.insert_command({
+                "cmd": "send_message",
+                "chat_id": self.chat_id,
+                "message": msg,
+            })
         else:
             if tp != -1:
                 tpPrice1 = excprice * (1 - (tp / leverage) / 100)
@@ -97,14 +115,23 @@ class BinanceUMFuturesClient:
                     self.client.new_order(
                         side=OrderSide.BUY,
                         symbol=symbol,
-                        type=OrderType.LIMIT,
-                        quantity=str(qty1),
-                        timeInForce=TimeInForce.GTC,
+                        type=OrderType.TAKE_PROFIT_MARKET,
+                        workingType=WorkingType.CONTRACT_PRICE,
+                        closePosition=True,
                         positionSide=positionSide,
-                        price=tpPrice1
+                        stopPrice=tpPrice1
                     )
+                    msg = f"Set TP for {positionSide} {symbol} has successfully at {tp}%!"
                 except Exception as e:
+                    msg = f"[Warning] Set TP for {positionSide} {symbol} has failed!"
                     logger.exception(f"Error in set TP: {e}")
+            else:
+                msg = "Does not set TP because your current configuration is: TP = -1"
+            self.userdb.insert_command({
+                "cmd": "send_message",
+                "chat_id": self.chat_id,
+                "message": msg,
+            })
             if sl != -1:
                 stopPrice = excprice * (1 + (sl / leverage) / 100)
                 stopPrice = "{:0.0{}f}".format(stopPrice, self.tick_size[symbol])
@@ -112,14 +139,23 @@ class BinanceUMFuturesClient:
                     self.client.new_order(
                         side=OrderSide.BUY,
                         symbol=symbol,
-                        ordertype=OrderType.STOP_MARKET,
+                        type=OrderType.STOP_MARKET,
                         workingType=WorkingType.CONTRACT_PRICE,
                         positionSide=positionSide,
                         closePosition=True,
                         stopPrice=stopPrice
                     )
+                    msg = f"Set SL for {positionSide} {symbol} has successfully at {sl}%!"
                 except Exception as e:
+                    msg = f"[Warning] Set SL for {positionSide} {symbol} has failed!"
                     logger.exception(f"Error in set SL: {e}")
+            else:
+                msg = "Does not set SL because your current configuration is: SL = -1"
+            self.userdb.insert_command({
+                "cmd": "send_message",
+                "chat_id": self.chat_id,
+                "message": msg,
+            })
         return
 
     def query_trade(self, orderId, symbol, positionKey, isOpen, uname,
@@ -172,7 +208,7 @@ class BinanceUMFuturesClient:
                                 positionSide
                             )
                         except:
-                            pass
+                            logging.exception("Can not run tpsl_trade.")
                     else:
                         self.userdb.update_positions(
                             self.chat_id, uid, positionKey, resultqty, 2
@@ -354,9 +390,12 @@ class BinanceUMFuturesClient:
             if tmodes[symbol] == 0 or (tmodes[symbol] == 2 and not is_open):
                 try:
                     tosend = f"Trying to execute the following trade:\n" \
-                             f"Symbol: {tradeinfo[1]}\nSide: {side}\n" \
-                             f"positionSide: {positionSide}\ntype: MARKET\n" \
-                             f"quantity: {quant}\nusdt: {usdt_trade:2f}"
+                             f"Symbol: {tradeinfo[1]}\n" \
+                             f"Side: {side}\n" \
+                             f"positionSide: {positionSide}\n" \
+                             f"type: MARKET\n" \
+                             f"quantity: {quant}\n" \
+                             f"usdt: {usdt_trade:2f}"
                     self.userdb.insert_command(
                         {
                             "cmd": "send_message",

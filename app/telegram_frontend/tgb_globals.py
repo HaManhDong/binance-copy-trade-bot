@@ -48,7 +48,7 @@ class tgGlobals:
                         todelete.append(msg["_id"])
                         db.delete_command(todelete)
                     except Exception as e:
-                        logger.error(f"Connection Error: {str(e)}")
+                        logger.exception(f"Connection Error: {str(e)}")
 
     def round_up(self, n, decimals=0):
         multiplier = 10 ** decimals
@@ -109,7 +109,7 @@ class tgGlobals:
             assert positions is not None
             assert times is not None
         except Exception as e:
-            logger.error(str(e))
+            logger.exception(e)
             return "x"
         output, _ = self.format_results(positions, times)
         return output["data"]

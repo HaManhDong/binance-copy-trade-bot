@@ -1,10 +1,10 @@
+import logging
 import threading
+import time
 
 from app.config import const
 from app.config.const import BINANCE_LEADER_BOARD_URL_V1
 from app.copy_trade_backend.ct_binance import BinanceUMFuturesClient
-import time
-import logging
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -78,6 +78,8 @@ class WebScraping(threading.Thread):
         txsize = []
         executePrice = []
         isClosedAll = []
+        is_new_position = []
+        profit = []
         if (isinstance(df, str) or df is None) and (
                 isinstance(df2, str) or df2 is None
         ):
@@ -94,12 +96,16 @@ class WebScraping(threading.Thread):
                     txsize.append(size)
                     executePrice.append(row["Entry Price"])
                     isClosedAll.append(False)
+                    is_new_position.append(True)
+                    profit.append(0)
                 else:
                     txtype.append("OpenShort")
                     txsymbol.append(row["symbol"])
                     txsize.append(size)
                     executePrice.append(row["Entry Price"])
                     isClosedAll.append(False)
+                    is_new_position.append(True)
+                    profit.append(0)
             txs = pd.DataFrame(
                 {
                     "txtype": txtype,
@@ -107,6 +113,8 @@ class WebScraping(threading.Thread):
                     "size": txsize,
                     "ExecPrice": executePrice,
                     "isClosedAll": isClosedAll,
+                    "is_new_position": is_new_position,
+                    "profit": profit,
                 }
             )
         elif isinstance(df2, str):
@@ -121,12 +129,16 @@ class WebScraping(threading.Thread):
                     txsize.append(-size)
                     executePrice.append(row["Mark Price"])
                     isClosedAll.append(True)
+                    is_new_position.append(False)
+                    profit.append(size * ((float(row["Mark Price"])) - float(row["Entry Price"])))
                 else:
                     txtype.append("CloseShort")
                     txsymbol.append(row["symbol"])
                     txsize.append(-size)
                     executePrice.append(row["Mark Price"])
                     isClosedAll.append(True)
+                    is_new_position.append(False)
+                    profit.append(-size * ((float(row["Mark Price"])) - float(row["Entry Price"])))
             txs = pd.DataFrame(
                 {
                     "txtype": txtype,
@@ -134,6 +146,8 @@ class WebScraping(threading.Thread):
                     "size": txsize,
                     "ExecPrice": executePrice,
                     "isClosedAll": isClosedAll,
+                    "is_new_position": is_new_position,
+                    "profit": profit,
                 }
             )
         else:
@@ -184,6 +198,8 @@ class WebScraping(threading.Thread):
                             txsymbol.append(df2row[0])
                             txsize.append(changesize)
                             isClosedAll.append(False)
+                            is_new_position.append(False)
+                            profit.append(0)
                             try:
                                 exp = (
                                               newentry * newsize - oldentry * size
@@ -200,6 +216,8 @@ class WebScraping(threading.Thread):
                             txsize.append(changesize)
                             executePrice.append(newmark)
                             isClosedAll.append(False)
+                            is_new_position.append(False)
+                            profit.append(abs(changesize) * (newmark - newentry))
                         df2 = df2.drop(r)
                         hasChanged = True
                         break
@@ -215,11 +233,15 @@ class WebScraping(threading.Thread):
                             txsize.append(changesize)
                             executePrice.append(newmark)
                             isClosedAll.append(False)
+                            is_new_position.append(False)
+                            profit.append(-abs(changesize) * (newmark - newentry))
                         else:
                             txtype.append("OpenShort")
                             txsymbol.append(df2row[0])
                             txsize.append(changesize)
                             isClosedAll.append(False)
+                            is_new_position.append(False)
+                            profit.append(0)
                             try:
                                 exp = (
                                               newentry * newsize - oldentry * size
@@ -240,12 +262,17 @@ class WebScraping(threading.Thread):
                         txsize.append(-size)
                         executePrice.append(oldmark)
                         isClosedAll.append(True)
+                        is_new_position.append(False)
+                        profit.append(abs(size) * (oldmark - oldentry))
                     else:
                         txtype.append("CloseShort")
                         txsymbol.append(row["symbol"])
                         txsize.append(-size)
                         executePrice.append(oldmark)
                         isClosedAll.append(True)
+                        is_new_position.append(False),
+                        profit.append(-abs(size) * (oldmark - oldentry))
+
             for index, row in df2.iterrows():
                 size = row["size"]
                 if isinstance(size, str):
@@ -257,12 +284,17 @@ class WebScraping(threading.Thread):
                     txsize.append(size)
                     executePrice.append(row["Entry Price"])
                     isClosedAll.append(False)
+                    is_new_position.append(True)
+                    profit.append(0)
                 else:
                     txtype.append("OpenShort")
                     txsymbol.append(row["symbol"])
                     txsize.append(size)
                     executePrice.append(row["Entry Price"])
                     isClosedAll.append(False)
+                    is_new_position.append(True)
+                    profit.append(0)
+
             txs = pd.DataFrame(
                 {
                     "txType": txtype,
@@ -270,6 +302,8 @@ class WebScraping(threading.Thread):
                     "size": txsize,
                     "ExecPrice": executePrice,
                     "isClosedAll": isClosedAll,
+                    "is_new_position": is_new_position,
+                    "profit": profit,
                 }
             )
         return txs  # add this to open trade part
@@ -341,7 +375,7 @@ class WebScraping(threading.Thread):
                                 break
                             except Exception as e:
                                 retries += 1
-                                logger.error(f"Can not open trade, retries={retries} detail: {e}")
+                                logger.exception(f"Can not open trade, retries={retries} detail: {e}")
                 self.userdb.save_position(uid, "x", True)
             elif self.num_no_data[uid] >= 3:
                 self.userdb.save_position(uid, "x", False)
@@ -360,7 +394,7 @@ class WebScraping(threading.Thread):
             try:
                 output, calmargin = self.format_results(positions, times)
             except Exception as e:
-                logger.error(f"Trader {name} may not share position anymore.")
+                logger.exception(f"Trader {name} may not share position anymore.")
                 return
             if prev_position == "x":
                 isChanged = True
@@ -371,7 +405,7 @@ class WebScraping(threading.Thread):
                     toComp = output["data"][["symbol", "size", "Entry Price"]]
                     prevdf = prev_position[["symbol", "size", "Entry Price"]]
                 except Exception as e:
-                    logger.error(str(e))
+                    logger.exception(str(e))
                 if not toComp.equals(prevdf):
                     txlist = self.changes(prev_position, output["data"])
                     if not txlist.empty:
@@ -474,7 +508,7 @@ class WebScraping(threading.Thread):
                                 break
                             except Exception as e:
                                 retries += 1
-                                logger.error(str(e))
+                                logger.exception(str(e))
                 self.userdb.save_position(uid, output["data"].to_json(), True)
             else:
                 self.userdb.save_position(uid, output["data"].to_json(), False)
@@ -537,7 +571,6 @@ class WebScraping(threading.Thread):
                 self.position_changes(
                     positions, times, uid["uid"], prevpos, uid["name"], uid["lastPosTime"]
                 )
-            # logger.info("Update leaderboard positions successfully!")
             time.sleep(3)
 
     def stop(self):

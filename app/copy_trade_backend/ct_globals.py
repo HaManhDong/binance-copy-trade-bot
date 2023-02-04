@@ -131,6 +131,8 @@ class ctGlobal:
                             uid,
                             prop,
                             user["leverage"],
+                            user["tp"],
+                            user["sl"],
                             user["traders"][uid]["tmode"],
                             user["traders"][uid]["positions"],
                             user["slippage"],

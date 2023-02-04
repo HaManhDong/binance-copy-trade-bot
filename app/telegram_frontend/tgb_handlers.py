@@ -1,9 +1,10 @@
+import prettytable
 from binance.um_futures import UMFutures
 from telegram.ext import (
     ConversationHandler,
     CallbackContext,
 )
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, ParseMode
 import telegram
 import time
 import os
@@ -667,17 +668,19 @@ class tgHandlers:
         else:
             msg = pd.read_json(msg)
             numrows = msg.shape[0]
-            if numrows <= 10:
-                update.message.reply_text(f"{msg.to_string()}")
-            else:
-                firstdf = msg.iloc[0:10]
-                tosend = firstdf.to_string() + "\n(cont...)"
-                update.message.reply_text(f"{tosend}")
-                for i in range(numrows // 10):
-                    seconddf = msg.iloc[(i + 1) * 10: min(numrows, (i + 2) * 10)]
-                    if not seconddf.empty:
-                        update.message.reply_text(f"{seconddf.to_string()}")
-        # update.message.reply_text(f"Successfully removed {update.message.text}.")
+            table = prettytable.PrettyTable(["Symbol", "Type", "Size", "Entry", "Mark price", "Lev", "PNL (ROE%)"])
+            if numrows > 0:
+                for i in range(0, numrows):
+                    table.add_row([
+                        msg["symbol"][i],
+                        "LONG" if msg['size'][i] > 0 else "SHORT",
+                        f'{msg["size"][i]:.2f}',
+                        f'{msg["Entry Price"][i]:.3f}',
+                        f'{msg["Mark Price"][i]:.3f}',
+                        msg["Estimated Margin"][i],
+                        msg["PNL (ROE%)"][i],
+                    ])
+            update.message.reply_text(text=f'```{table}```', parse_mode=ParseMode.MARKDOWN_V2)
         return ConversationHandler.END
 
     def delTrader(self, update: Update, context: CallbackContext):
@@ -1340,7 +1343,7 @@ class tgHandlers:
         return
 
     def error_callback(self, update, context):
-        logger.error("Error!!!!!Why!!!")
+        logger.exception("Error!!!!!Why!!!")
         # for doc in self.dbobject.getall("usertable"):
         #     chat_id = doc["chat_id"]
         #     self.updater.bot.sendMessage(chat_id=chat_id, text="Automatic reloading...")

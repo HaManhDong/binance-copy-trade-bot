@@ -1,11 +1,8 @@
-import pymongo
-import pandas as pd
-import time
 import logging
-import prettytable
 
+import prettytable
+import pymongo
 from binance.um_futures import UMFutures
-from pybit.usdt_perpetual import HTTP
 from telegram import ParseMode
 
 logging.basicConfig(
@@ -226,16 +223,12 @@ class dbOperations:
 
     def get_positions(self, chat_id):
         result = self.usertable.find_one({"chat_id": chat_id})
-        potisions = []
         try:
             client = UMFutures(
                 key=result['api_key'],
                 secret=result['api_secret']
             )
             potisions = client.get_position_risk()
-        except:
-            logger.error("Other errors")
-        try:
             table = prettytable.PrettyTable(["Symbol", "Type", "Size", "Entry", "Mark price", "Lev", "%", "PNL"])
             for pos in potisions:
                 if float(pos["notional"]) != 0:
@@ -252,9 +245,8 @@ class dbOperations:
                         f'{percent:.2f}%',
                         f'{float(pos["unRealizedProfit"]):.2f}',
                     ])
-
             self.updater.bot.sendMessage(chat_id=chat_id, text=f'```{table}```', parse_mode=ParseMode.MARKDOWN_V2)
         except Exception as e:
-            logger.info(f"hi {str(e)}")
-            self.updater.bot.sendMessage(chat_id, "Unable to get positions.")
+            logger.exception("Cant not get the current positions!!")
+            self.updater.bot.sendMessage(chat_id, f"Unable to get positions due to: {e.error_message} .")
         return
