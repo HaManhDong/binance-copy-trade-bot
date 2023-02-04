@@ -6,6 +6,8 @@ import pandas as pd
 import requests
 import re
 
+from telegram import ParseMode
+
 from app.config.const import PERPETUAL, BINANCE_LEADER_BOARD_URL_V1
 from app.data.credentials import db_user, db_pw, db_host, db_port
 import logging
@@ -44,7 +46,13 @@ class tgGlobals:
                             time.sleep(0.1)
                             sendmsg = msg["message"][500 * i:500 * (i + 1)]
                             if re.sub(r'[^a-zA-Z0-9]+', '', sendmsg) != "":
-                                self.updater.bot.sendMessage(msg["chat_id"], sendmsg)
+                                if msg.get("parse_mode"):
+                                    self.updater.bot.sendMessage(
+                                        chat_id=msg["chat_id"],
+                                        text=sendmsg,
+                                        parse_mode=msg.get("parse_mode"))
+                                else:
+                                    self.updater.bot.sendMessage(msg["chat_id"], sendmsg)
                         todelete.append(msg["_id"])
                         db.delete_command(todelete)
                     except Exception as e:

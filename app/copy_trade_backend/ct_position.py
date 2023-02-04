@@ -2,6 +2,9 @@ import logging
 import threading
 import time
 
+from prettytable import prettytable
+from telegram import ParseMode
+
 from app.config import const
 from app.config.const import BINANCE_LEADER_BOARD_URL_V1
 from app.copy_trade_backend.ct_binance import BinanceUMFuturesClient
@@ -330,6 +333,19 @@ class WebScraping(threading.Thread):
                         f"Trader {name}, Current time: " + str(now) + "\nNo positions.\n"
                 )
                 txlist = self.changes(prev_df, "x")
+                table = prettytable.PrettyTable(
+                    ["Type", "Symbol", "Size", "ExecPrice", "isClosedAll", "PNL"])
+                numrows = txlist.shape[0]
+                for i in range(0, numrows):
+                    table.add_row([
+                        txlist['txtype'][i],
+                        txlist["symbol"][i],
+                        f'{txlist["size"][i]:.2f}',
+                        f'{txlist["ExecPrice"][i]:.3f}',
+                        txlist["isClosedAll"][i],
+                        txlist["profit"][i],
+                    ])
+
                 for users in following_users:
                     self.userdb.insert_command(
                         {
@@ -339,12 +355,13 @@ class WebScraping(threading.Thread):
                         }
                     )
                     if users['traders'][uid]["toTrade"]:
-                        tosend = "Making the following trades: \n" + txlist.to_string()
+                        tosend = "Making the following trades: \n" + f'```{table}```'
                         self.userdb.insert_command(
                             {
                                 "cmd": "send_message",
                                 "chat_id": users["chat_id"],
                                 "message": tosend,
+                                "parse_mode": ParseMode.MARKDOWN_V2
                             }
                         )
                         retries = 0
@@ -419,65 +436,35 @@ class WebScraping(threading.Thread):
                 now = datetime.now() + timedelta(hours=8)
                 self.lastPosTime = datetime.now() + timedelta(hours=8)
                 numrows = output["data"].shape[0]
-                if numrows <= 10:
-                    tosend = (
-                            f"Trader {name}, Current time: "
-                            + str(now)
-                            + "\n"
-                            + output["time"]
-                            + "\n"
-                            + output["data"].to_string()
-                            + "\n"
-                    )
+                table = prettytable.PrettyTable(
+                    ["Symbol", "Type", "Size", "Entry", "Mark price", "Lev", "PNL (ROE%)"])
+                if numrows > 0:
+                    for i in range(0, numrows):
+                        table.add_row([
+                            output['data']["symbol"][i],
+                            "LONG" if output["data"]['size'][i] > 0 else "SHORT",
+                            f'{output["data"]["size"][i]:.2f}',
+                            f'{output["data"]["Entry Price"][i]:.3f}',
+                            f'{output["data"]["Mark Price"][i]:.3f}',
+                            output["data"]["Estimated Margin"][i],
+                            output["data"]["PNL (ROE%)"][i],
+                        ])
                     for users in following_users:
-                        self.userdb.insert_command(
-                            {
-                                "cmd": "send_message",
-                                "chat_id": users["chat_id"],
-                                "message": tosend,
-                            }
-                        )
-                else:
-                    firstdf = output["data"].iloc[0:10]
-                    tosend = (
-                            f"Trader {name}, Current time: "
-                            + str(now)
-                            + "\n"
-                            + output["time"]
-                            + "\n"
-                            + firstdf.to_string()
-                            + "\n(cont...)"
-                    )
-                    for users in following_users:
-                        self.userdb.insert_command(
-                            {
-                                "cmd": "send_message",
-                                "chat_id": users["chat_id"],
-                                "message": tosend,
-                            }
-                        )
-                    for i in range(numrows // 10):
-                        seconddf = output["data"].iloc[
-                                   (i + 1) * 10: min(numrows, (i + 2) * 10)
-                                   ]
-                        if not seconddf.empty:
-                            for users in following_users:
-                                self.userdb.insert_command(
-                                    {
-                                        "cmd": "send_message",
-                                        "chat_id": users["chat_id"],
-                                        "message": seconddf.to_string(),
-                                    }
-                                )
-                # txlist = self.changes(prev_position, output["data"])
+                        self.userdb.insert_command({
+                            "cmd": "send_message",
+                            "chat_id": users["chat_id"],
+                            "message": f'{name} has changed positions: \n```{table}```',
+                            "parse_mode": ParseMode.MARKDOWN_V2
+                        })
                 for users in following_users:
                     if users["traders"][uid]["toTrade"] and not txlist.empty:
-                        tosend = "Making the following trades: \n" + txlist.to_string()
+                        tosend = "Making the following trades: \n" + f'```{table}```'
                         self.userdb.insert_command(
                             {
                                 "cmd": "send_message",
                                 "chat_id": users["chat_id"],
                                 "message": tosend,
+                                "parse_mode": ParseMode.MARKDOWN_V2
                             }
                         )
                         retries = 0
